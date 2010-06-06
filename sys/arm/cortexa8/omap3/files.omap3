@@ -1,0 +1,39 @@
+#$FreeBSD$
+
+arm/arm/bus_space_generic.c			standard
+arm/arm/bus_space_asm_generic.S		standard
+arm/arm/cpufunc_asm_armv5.S			standard
+arm/arm/cpufunc_asm_arm10.S			standard
+arm/arm/cpufunc_asm_cortex_a8.S		standard
+arm/arm/irq_dispatch.S				standard
+
+arm/cortexa8/cortexa8_machdep.c			standard
+arm/cortexa8/cortexa8_uart.c			standard
+arm/cortexa8/cortexa8_ttb_debug.c		standard
+
+arm/cortexa8/omap3/omap3.c				standard
+arm/cortexa8/omap3/omap3_mem.c			standard
+arm/cortexa8/omap3/omap3_space.c		standard
+arm/cortexa8/omap3/omap3_space_asm.S	standard
+arm/cortexa8/omap3/omap3_timer.c		standard
+arm/cortexa8/omap3/omap3_intr.c			standard
+arm/cortexa8/omap3/omap3_prcm.c			standard
+arm/cortexa8/omap3/omap3_dma.c			standard
+arm/cortexa8/omap3/omap3_gpio.c			standard
+
+arm/cortexa8/omap3/omap3_mmc.c			optional	omap3_mmc
+arm/cortexa8/omap3/omap3_i2c.c			optional	omap3_i2c
+
+
+# arm/cortexa8/omap3/omap3_wdog.c	optional	ixpwdog
+# arm/cortexa8/omap3/omap3_iic.c	optional	ixpiic
+arm/cortexa8/omap3/uart_cpu_omap3.c	optional	uart
+arm/cortexa8/omap3/uart_bus_omap3.c	optional	uart
+
+# dev/cfi/cfi_bus_ixp4xx.c		optional	cfi
+dev/uart/uart_dev_ns8250.c		optional	uart
+
+# USB Host controller
+dev/usb/controller/ehci_omap3.c	optional ehci usb
+
+
