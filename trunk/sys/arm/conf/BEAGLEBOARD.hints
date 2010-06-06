@@ -1,0 +1,23 @@
+# $FreeBSD$
+
+# USB ECHI 
+
+#
+# If 'phy_reset" is set, then the accompaning PHY is reset using one of the
+# GPIO pins. If the reset GPIO pin is not -1 then the pin will be toggled when
+# the USB driver is loaded.
+hint.ehci.0.phy_reset="1"
+hint.ehci.0.phy_reset_gpio_0="-1"
+hint.ehci.0.phy_reset_gpio_1="147"
+hint.ehci.0.phy_reset_gpio_2="-1"
+
+#
+# Sets the PHY mode for the individual ports, the following values are allowed
+#   - EHCI_HCD_OMAP3_MODE_UNKNOWN   0
+#   - EHCI_HCD_OMAP3_MODE_PHY       1
+#   - EHCI_HCD_OMAP3_MODE_TLL       2
+hint.ehci.0.phy_mode_0="1"
+hint.ehci.0.phy_mode_1="1"
+hint.ehci.0.phy_mode_2="0"
+
+
