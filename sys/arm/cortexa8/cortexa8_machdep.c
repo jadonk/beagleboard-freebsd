@@ -146,35 +146,35 @@ static const struct pmap_devmap omap3_devmap[] = {
 	 */
 	{
 		/* 16MB of L4, covering all L4 core registers */
-		OMAP35XX_L4_CORE_VBASE,
-		OMAP35XX_L4_CORE_HWBASE,
-		OMAP35XX_L4_CORE_SIZE,
-		VM_PROT_READ|VM_PROT_WRITE,
-		PTE_NOCACHE
+		.pd_va    = OMAP35XX_L4_CORE_VBASE,
+		.pd_pa    = OMAP35XX_L4_CORE_HWBASE,
+		.pd_size  = OMAP35XX_L4_CORE_SIZE,
+		.pd_prot  = VM_PROT_READ|VM_PROT_WRITE,
+		.pd_cache = PTE_NOCACHE
 	},
 	{
 		/* 1MB of L4, covering the periph registers */
-		OMAP35XX_L4_PERIPH_VBASE,
-		OMAP35XX_L4_PERIPH_HWBASE,
-		OMAP35XX_L4_PERIPH_SIZE,
-		VM_PROT_READ|VM_PROT_WRITE,
-		PTE_NOCACHE
+		.pd_va    = OMAP35XX_L4_PERIPH_VBASE,
+		.pd_pa    = OMAP35XX_L4_PERIPH_HWBASE,
+		.pd_size  = OMAP35XX_L4_PERIPH_SIZE,
+		.pd_prot  = VM_PROT_READ|VM_PROT_WRITE,
+		.pd_cache = PTE_NOCACHE
 	},
 	{
 		/* 64Kb of L3, covering the SDRAM controller registers */
-		OMAP35XX_L4_WAKEUP_VBASE,
-		OMAP35XX_L4_WAKEUP_HWBASE,
-		OMAP35XX_L4_PERIPH_SIZE,
-		VM_PROT_READ|VM_PROT_WRITE,
-		PTE_NOCACHE
+		.pd_va    = OMAP35XX_L4_WAKEUP_VBASE,
+		.pd_pa    = OMAP35XX_L4_WAKEUP_HWBASE,
+		.pd_size  = OMAP35XX_L4_PERIPH_SIZE,
+		.pd_prot  = VM_PROT_READ|VM_PROT_WRITE,
+		.pd_cache = PTE_NOCACHE
 	},
 	{
 		/* 64Kb of L3, covering the SDRAM controller registers */
-		OMAP35XX_SDRC_VBASE,
-		OMAP35XX_SDRC_HWBASE,
-		OMAP35XX_SDRC_SIZE,
-		VM_PROT_READ|VM_PROT_WRITE,
-		PTE_NOCACHE
+		.pd_va    = OMAP35XX_SDRC_VBASE,
+		.pd_pa    = OMAP35XX_SDRC_HWBASE,
+		.pd_size  = OMAP35XX_SDRC_SIZE,
+		.pd_prot  = VM_PROT_READ|VM_PROT_WRITE,
+		.pd_cache = PTE_NOCACHE
 	},
 	{ 0, 0, 0, 0, 0 }	/* Array terminator */
 };

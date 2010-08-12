@@ -86,6 +86,8 @@ __FBSDID("$FreeBSD$");
 #include <arm/cortexa8/omap3/omap3_mmc.h>
 #include <arm/cortexa8/omap3/omap3_dma.h>
 #include <arm/cortexa8/omap3/omap3_prcm.h>
+#include <arm/cortexa8/omap3/omap3_scm.h>
+#include <arm/cortexa8/omap3/omap3_gpio.h>
 
 
 
@@ -95,9 +97,9 @@ __FBSDID("$FreeBSD$");
  *	Structure that stores the driver context
  */
 struct omap3_mmc_softc {
+	device_t			sc_dev;
 	bus_space_tag_t		sc_iotag;
 	bus_space_handle_t	sc_ioh;
-	device_t			sc_dev;
 	
 	bus_dma_tag_t		sc_dmatag;
 	bus_dmamap_t		sc_dmamap;
@@ -108,6 +110,8 @@ struct omap3_mmc_softc {
 
 	void*				sc_irq_h;
 	struct resource*	sc_irq_res;	/* IRQ resource */
+	
+	int                 sc_wp_gpio_pin;  /* GPIO pin for MMC write protect */
 
 	struct mtx			sc_mtx;
 	
@@ -376,6 +380,21 @@ omap3_mmc_attach(device_t dev)
 	sc->sc_dmach_wr = (unsigned int)-1;
 
 
+	/* Get the hint'ed write detect pin */
+	if (resource_int_value("omap3_mmc", 0, "wp_gpio", &sc->sc_wp_gpio_pin) != 0){
+		sc->sc_wp_gpio_pin = -1;
+	} else {
+		/* Change the PADCONF so the pin is an input mode (assume HW pull-ups) */
+		omap3_scm_padconf_set_gpiomode(sc->sc_wp_gpio_pin, PADCONF_PIN_INPUT);
+	
+		/* Request the GPIO pin and make it an input */
+		if (omap3_gpio_request(sc->sc_wp_gpio_pin, "MMC_WP") != 0)
+			sc->sc_wp_gpio_pin = -1;
+		else
+			omap3_gpio_direction_input(sc->sc_wp_gpio_pin);
+	}
+
+
 	/* Activate the device */
 	err = omap3_mmc_activate(dev);
 	if (err)
@@ -500,6 +519,11 @@ omap3_mmc_detach(device_t dev)
 	
 	omap3_dma_deactivate_channel(sc->sc_dmach_wr);
 	omap3_dma_deactivate_channel(sc->sc_dmach_rd);
+	
+	if (sc->sc_wp_gpio_pin != -1) {
+		omap3_gpio_free(sc->sc_wp_gpio_pin);
+		sc->sc_wp_gpio_pin = -1;
+	}
 
 	return (0);
 }
@@ -852,8 +876,9 @@ omap3_mmc_intr(void *arg)
 	
 	/* This may mark the command as done if there is no stop request */
 	/* TODO: This is a bit ugly, needs fix-up */
-	if (done)
+	if (done) {
 		omap3_mmc_start(sc);
+	}
 	
 	OMAP3_MMC_UNLOCK(sc);
 }
@@ -986,12 +1011,13 @@ omap3_mmc_start_cmd(struct omap3_mmc_softc *sc, struct mmc_command *cmd)
 	/* Setup the DMA stuff */
 	if (data->flags & (MMC_DATA_READ | MMC_DATA_WRITE)) {
 		
-		vaddr = cmd->data->data;
+		vaddr = data->data;
 		data->xfer_len = 0;
-		
+
 		/* Map the buffer buf into bus space using the dmamap map. */
 		if (bus_dmamap_load(sc->sc_dmatag, sc->sc_dmamap, vaddr, data->len,
 							omap3_mmc_getaddr, &paddr, 0) != 0) {
+
 			if (req->cmd->flags & STOP_STARTED)
 				req->stop->error = MMC_ERR_NO_MEMORY;
 			else
@@ -1141,7 +1167,9 @@ omap3_mmc_request(device_t brdev, device_t reqdev, struct mmc_request *req)
  *	@brdev: mmc bridge device handle
  *	@reqdev: device doing the request
  *
- *	This function is currently not implemented.
+ *	This function is relies on hint'ed values to determine which GPIO is used
+ *	to determine if the write protect is enabled. On the BeagleBoard the pin
+ *	is GPIO_23.
  *
  *	LOCKING:
  *	-
@@ -1153,10 +1181,20 @@ omap3_mmc_request(device_t brdev, device_t reqdev, struct mmc_request *req)
 static int
 omap3_mmc_get_ro(device_t brdev, device_t reqdev)
 {
-	printf("[BRG] %s : %d\n", __func__, __LINE__);	
+	struct omap3_mmc_softc *sc = device_get_softc(brdev);
+	int readonly = 0;
+
+	OMAP3_MMC_LOCK(sc);
+
+	if (sc->sc_wp_gpio_pin != -1) {
+		readonly = (omap3_gpio_pin_get(sc->sc_wp_gpio_pin) == 0) ? 0 : 1;
+
+	}
 	
-	/* TODO: Implement this correctly */
-	return (0);
+	OMAP3_MMC_UNLOCK(sc);
+
+	
+	return (readonly);
 }
 
 
@@ -1190,7 +1228,6 @@ omap3_mmc_update_ios(device_t brdev, device_t reqdev)
 	host = &sc->host;
 	ios = &host->ios;
 	
-	printf("[BRG] %s : %d : clock %d : width %d\n", __func__, __LINE__, ios->clock, ios->bus_width);
 	
 	/* need the MMCHS_SYSCTL register */
 	sysctl_reg = omap3_mmc_readl(sc, OMAP35XX_MMCHS_SYSCTL);
@@ -1267,13 +1304,16 @@ omap3_mmc_acquire_host(device_t brdev, device_t reqdev)
 	struct omap3_mmc_softc *sc = device_get_softc(brdev);
 	int err = 0;
 	
-	printf("[BRG] %s : %d\n", __func__, __LINE__);	
-	
 	OMAP3_MMC_LOCK(sc);
-	while (sc->bus_busy)
+	
+	while (sc->bus_busy) {
 		msleep(sc, &sc->sc_mtx, PZERO, "mmc", hz / 5);
+	}
+	
 	sc->bus_busy++;
+	
 	OMAP3_MMC_UNLOCK(sc);
+
 	return (err);
 }
 
@@ -1296,12 +1336,13 @@ omap3_mmc_release_host(device_t brdev, device_t reqdev)
 {
 	struct omap3_mmc_softc *sc = device_get_softc(brdev);
 	
-	printf("[BRG] %s : %d\n", __func__, __LINE__);	
-
 	OMAP3_MMC_LOCK(sc);
+	
 	sc->bus_busy--;
 	wakeup(sc);
+	
 	OMAP3_MMC_UNLOCK(sc);
+	
 	return (0);
 }
 
@@ -1468,4 +1509,7 @@ static devclass_t g_omap3_mmc_devclass;
 
 DRIVER_MODULE(omap3_mmc, omap3, g_omap3_mmc_driver, g_omap3_mmc_devclass, 0, 0);
 MODULE_DEPEND(omap3_mmc, omap3_prcm, 1, 1, 1);
+MODULE_DEPEND(omap3_mmc, omap3_dma, 1, 1, 1);
+MODULE_DEPEND(omap3_mmc, omap3_scm, 1, 1, 1);
+MODULE_DEPEND(omap3_mmc, omap3_gpio, 1, 1, 1);
 

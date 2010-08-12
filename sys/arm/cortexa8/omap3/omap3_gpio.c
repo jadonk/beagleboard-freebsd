@@ -77,6 +77,7 @@ __FBSDID("$FreeBSD$");
 #include <arm/cortexa8/omap3/omap3var.h>
 
 #include <arm/cortexa8/omap3/omap3_gpio.h>
+#include <arm/cortexa8/omap3/omap3_prcm.h>
 
 
 /**
@@ -99,6 +100,7 @@ __FBSDID("$FreeBSD$");
  *	driver is never intented to be unloaded (see g_omap3_gpio_sc).
  */
 struct omap3_gpio_softc {
+	device_t			sc_dev;
 	/* Annoyingly GPIO1 is in the L4-WAKEUP memory space, whereas all the others
 	 * are in the L4-PERIPH space ... so we need seperate mappings for GPIO1 and
 	 * GPIO2-6.
@@ -107,17 +109,28 @@ struct omap3_gpio_softc {
 	bus_space_handle_t	sc_ioh_gpio1;
 	bus_space_handle_t	sc_ioh_gpio2_6;
 
-	device_t			sc_dev;
 	struct resource*	sc_irq;
 	
 	uint32_t			sc_gpio_setup[OMAP3_GPIO_MAX_PINS / 32];
 	
+	void (*sc_callbacks[OMAP3_GPIO_MAX_PINS])(unsigned int, unsigned int, void*);
+	void*               sc_callback_data[OMAP3_GPIO_MAX_PINS];
+	
+	uint32_t			sc_debounce[OMAP3_GPIO_MAX_PINS / 32];
+
 	struct mtx			sc_mtx;
 
 	
 };
 
 static struct omap3_gpio_softc *g_omap3_gpio_sc = NULL;
+
+
+/**
+ *	Function prototypes
+ *
+ */
+static void omap3_gpio_intr(void *);
 
 
 /**
@@ -249,6 +262,9 @@ omap3_gpio_attach(device_t dev)
 {
 	struct omap3_gpio_softc *sc = device_get_softc(dev);
 	unsigned int i = 0;
+	int          rid = 0;
+	void        *ihl;
+	int          err;
 
 	/* Setup the basics */
 	sc->sc_dev = dev;
@@ -276,18 +292,24 @@ omap3_gpio_attach(device_t dev)
 		panic("%s: Cannot map registers", device_get_name(dev));
 	}
 	
-	printf("OMAP35XX_GPIO6_HWBASE + OMAP35XX_GPIO6_SIZE = 0x%08x\n"
-		   "OMAP35XX_GPIO2_HWBASE = 0x%08x\n",
-		   (OMAP35XX_GPIO6_HWBASE + OMAP35XX_GPIO6_SIZE),
-			OMAP35XX_GPIO2_HWBASE);
-	printf("bus_space_map(--, 0x%08x, 0x%08x, --, --)\n",
-		   OMAP35XX_GPIO2_HWBASE,
-		   ((OMAP35XX_GPIO6_HWBASE + OMAP35XX_GPIO6_SIZE) -
-			OMAP35XX_GPIO2_HWBASE));
+
+	/* Install interrupt handlers for all the possible interrupts */
+	sc->sc_irq = bus_alloc_resource(dev, SYS_RES_IRQ, &rid, OMAP35XX_IRQ_GPIO1_MPU,
+									OMAP35XX_IRQ_GPIO6_MPU, 6, RF_ACTIVE);
+	if (sc->sc_irq == NULL)
+		panic("Unable to setup the GPIO irq handler.\n");
+	
+	err = bus_setup_intr(dev, sc->sc_irq, INTR_TYPE_MISC | INTR_MPSAFE, NULL,
+				         omap3_gpio_intr, NULL, &ihl);
+	if (err) {
+		panic("%s: Cannot register IRQ", device_get_name(dev));
+	}
+
+
+
 	
 	/* TODO: Reset all the GPIO modules ... is this needed ? is it a good idea ? */
-	
-	
+
 	
 	/* Store the GPIO structure globally, this driver should never be unloaded */
 	g_omap3_gpio_sc = sc;
@@ -311,6 +333,7 @@ static driver_t g_omap3_gpio_driver = {
 static devclass_t g_omap3_gpio_devclass;
 
 DRIVER_MODULE(omap3_gpio, omap3, g_omap3_gpio_driver, g_omap3_gpio_devclass, 0, 0);
+MODULE_DEPEND(omap3_gpio, omap3_prcm, 1, 1, 1);
 
 
 
@@ -330,7 +353,7 @@ DRIVER_MODULE(omap3_gpio, omap3, g_omap3_gpio_driver, g_omap3_gpio_devclass, 0, 
  *	-EINVAL if pin requested is outside valid range or already in use.
  */
 int
-omap3_gpio_request(int pin, const char *name)
+omap3_gpio_request(unsigned int pin, const char *name)
 {
 	struct omap3_gpio_softc *sc = g_omap3_gpio_sc;
 	int ret = 0;
@@ -339,16 +362,42 @@ omap3_gpio_request(int pin, const char *name)
 	
 	if (sc == NULL)
 		return(-ENOMEM);
-	if ((pin < 0) || (pin >= OMAP3_GPIO_MAX_PINS))
+	if (pin >= OMAP3_GPIO_MAX_PINS)
 		return(-EINVAL);
 	
 	mtx_lock(&sc->sc_mtx);
 	
-	if (sc->sc_gpio_setup[bank] & mask)
+	if (sc->sc_gpio_setup[bank] & mask) {
 		ret = -EINVAL;
-	else
+	} else {
+		/* enable the interface clock for the bank, just because there is no
+		 * guarantee it is already enabled.
+		 */
+		switch (bank) {
+			case 0:
+				omap3_prcm_enable_clk(OMAP3_MODULE_GPIO1_ICLK);
+				break;
+			case 1:
+				omap3_prcm_enable_clk(OMAP3_MODULE_GPIO2_ICLK);
+				break;
+			case 2:
+				omap3_prcm_enable_clk(OMAP3_MODULE_GPIO3_ICLK);
+				break;
+			case 3:
+				omap3_prcm_enable_clk(OMAP3_MODULE_GPIO4_ICLK);
+				break;
+			case 4:
+				omap3_prcm_enable_clk(OMAP3_MODULE_GPIO5_ICLK);
+				break;
+			case 5:
+				omap3_prcm_enable_clk(OMAP3_MODULE_GPIO6_ICLK);
+				break;
+		}
+	
+		/* set the flag to say it is in use */
 		sc->sc_gpio_setup[bank] |= mask;
-
+	}
+	
 	mtx_unlock(&sc->sc_mtx);
 	
 	return(ret);
@@ -368,7 +417,7 @@ omap3_gpio_request(int pin, const char *name)
  *	-EINVAL if pin released is outside valid range or not requested in use.
  */
 int
-omap3_gpio_free(int pin)
+omap3_gpio_free(unsigned int pin)
 {
 	struct omap3_gpio_softc *sc = g_omap3_gpio_sc;
 	int ret = 0;
@@ -377,15 +426,43 @@ omap3_gpio_free(int pin)
 	
 	if (sc == NULL)
 		return(-ENOMEM);
-	if ((pin < 0) || (pin >= OMAP3_GPIO_MAX_PINS))
+	if (pin >= OMAP3_GPIO_MAX_PINS)
 		return(-EINVAL);
 	
 	mtx_lock(&sc->sc_mtx);
 	
-	if (!(sc->sc_gpio_setup[bank] & mask))
+	if (!(sc->sc_gpio_setup[bank] & mask)) {
 		ret = -EINVAL;
-	else
+	} else {
 		sc->sc_gpio_setup[bank] &= ~mask;
+	
+		/* check if none of the pins are no in use and if so disable the
+		 * interface clock.
+		 */
+		if (sc->sc_gpio_setup[bank] == 0x00000000) {
+			switch (bank) {
+				case 0:
+					omap3_prcm_disable_clk(OMAP3_MODULE_GPIO1_ICLK);
+					break;
+				case 1:
+					omap3_prcm_disable_clk(OMAP3_MODULE_GPIO2_ICLK);
+					break;
+				case 2:
+					omap3_prcm_disable_clk(OMAP3_MODULE_GPIO3_ICLK);
+					break;
+				case 3:
+					omap3_prcm_disable_clk(OMAP3_MODULE_GPIO4_ICLK);
+					break;
+				case 4:
+					omap3_prcm_disable_clk(OMAP3_MODULE_GPIO5_ICLK);
+					break;
+				case 5:
+					omap3_prcm_disable_clk(OMAP3_MODULE_GPIO6_ICLK);
+					break;
+			}
+		}
+	}
+
 	
 	mtx_unlock(&sc->sc_mtx);
 	
@@ -408,7 +485,7 @@ omap3_gpio_free(int pin)
  *	-EINVAL if pin is outside valid range or not reserved for use.
  */
 int
-omap3_gpio_direction_output(int pin, int val)
+omap3_gpio_direction_output(unsigned int pin, int val)
 {
 	struct omap3_gpio_softc *sc = g_omap3_gpio_sc;
 	int ret = 0;
@@ -418,7 +495,7 @@ omap3_gpio_direction_output(int pin, int val)
 	
 	if (sc == NULL)
 		return(-ENOMEM);
-	if ((pin < 0) || (pin >= OMAP3_GPIO_MAX_PINS))
+	if (pin >= OMAP3_GPIO_MAX_PINS)
 		return(-EINVAL);
 	
 	mtx_lock(&sc->sc_mtx);
@@ -460,7 +537,7 @@ omap3_gpio_direction_output(int pin, int val)
  *	-EINVAL if pin is outside valid range or not reserved for use.
  */
 int
-omap3_gpio_direction_input(int pin)
+omap3_gpio_direction_input(unsigned int pin)
 {
 	struct omap3_gpio_softc *sc = g_omap3_gpio_sc;
 	int ret = 0;
@@ -470,7 +547,7 @@ omap3_gpio_direction_input(int pin)
 	
 	if (sc == NULL)
 		return(-ENOMEM);
-	if ((pin < 0) || (pin >= OMAP3_GPIO_MAX_PINS))
+	if (pin >= OMAP3_GPIO_MAX_PINS)
 		return(-EINVAL);
 	
 	mtx_lock(&sc->sc_mtx);
@@ -506,7 +583,7 @@ omap3_gpio_direction_input(int pin)
  *	-EINVAL if pin is outside valid range or not reserved for use.
  */
 int
-omap3_gpio_pin_get(int pin)
+omap3_gpio_pin_get(unsigned int pin)
 {
 	struct omap3_gpio_softc *sc = g_omap3_gpio_sc;
 	int ret = 0;
@@ -515,7 +592,7 @@ omap3_gpio_pin_get(int pin)
 	
 	if (sc == NULL)
 		return(-ENOMEM);
-	if ((pin < 0) || (pin >= OMAP3_GPIO_MAX_PINS))
+	if (pin >= OMAP3_GPIO_MAX_PINS)
 		return(-EINVAL);
 	
 	mtx_lock(&sc->sc_mtx);
@@ -552,7 +629,7 @@ omap3_gpio_pin_get(int pin)
  *	-EINVAL if pin is outside valid range or not reserved for use.
  */
 int
-omap3_gpio_pin_set(int pin, int val)
+omap3_gpio_pin_set(unsigned int pin, int val)
 {
 	struct omap3_gpio_softc *sc = g_omap3_gpio_sc;
 	int ret = 0;
@@ -599,7 +676,7 @@ omap3_gpio_pin_set(int pin, int val)
  *	-EINVAL if pin is outside valid range or not reserved for use.
  */
 int
-omap3_gpio_pin_toggle(int pin)
+omap3_gpio_pin_toggle(unsigned int pin)
 {
 	struct omap3_gpio_softc *sc = g_omap3_gpio_sc;
 	int ret = 0;
@@ -609,7 +686,7 @@ omap3_gpio_pin_toggle(int pin)
 	
 	if (sc == NULL)
 		return(-ENOMEM);
-	if ((pin < 0) || (pin >= OMAP3_GPIO_MAX_PINS))
+	if (pin >= OMAP3_GPIO_MAX_PINS)
 		return(-EINVAL);
 	
 	mtx_lock(&sc->sc_mtx);
@@ -633,3 +710,282 @@ omap3_gpio_pin_toggle(int pin)
 	
 	return(ret);
 }
+
+
+
+/**
+ *	omap3_gpio_intr - interrupt handler for all 6 GPIO IRQs
+ *	@arg: ignored
+ *
+ *	Called when any of the four DMA IRQs are triggered.
+ *
+ *	LOCKING:
+ *	DMA registers protected by internal mutex
+ *
+ *	RETURNS:
+ *	nothing
+ */
+static void
+omap3_gpio_intr(void *arg)
+{
+	struct omap3_gpio_softc *sc = g_omap3_gpio_sc;
+	uint32_t bank;
+	uint32_t pin;
+	uint32_t i;
+	uint32_t intr;
+	uint32_t din;
+	
+	void (*callback)(unsigned int, unsigned int, void*);
+	void *callback_data;
+
+	mtx_lock(&sc->sc_mtx);
+
+	for (bank = 0; bank < (OMAP3_GPIO_MAX_PINS / 32); bank++) {
+	
+		/* read the bank interrupt status */
+		intr = omap3_gpio_readl(sc, bank, OMAP35XX_GPIO_IRQSTATUS1);
+		intr &= omap3_gpio_readl(sc, bank, OMAP35XX_GPIO_IRQENABLE1);
+		
+		/* read the current level */
+		din = omap3_gpio_readl(sc, bank, OMAP35XX_GPIO_DATAIN);
+		
+		/* call any callbacks if the interrupt matches */
+		if (intr != 0) {
+			for (i = 0; i< 32; i++) {
+				pin = (i + (bank * 32));
+				if ((intr & (0x1 << i)) && (sc->sc_callbacks[pin] != NULL)) {
+				
+					callback = sc->sc_callbacks[pin];
+					callback_data = sc->sc_callback_data[pin];
+
+					mtx_unlock(&sc->sc_mtx);
+					
+					callback(pin, ((din >> i) & 0x1), callback_data);
+										  
+					mtx_lock(&sc->sc_mtx);
+				}
+			}
+		}
+	
+		/* clear the interrupt status */
+		omap3_gpio_writel(sc, bank, OMAP35XX_GPIO_IRQSTATUS1, intr);
+	}
+
+	mtx_unlock(&sc->sc_mtx);
+}
+
+
+/**
+ *	omap3_gpio_pin_intr - enables interrupt generation on a pin change
+ *	@pin: the pin number (0-195)
+ *	@trigger: the pin trigger to use to generate interrupts, can OR multiple
+ *	          multiple triggers. Possible values are; GPIO_TRIGGER_LOWLEVEL,
+ *	          GPIO_TRIGGER_HIGHLEVEL, GPIO_TRIGGER_RISING and
+ *	          GPIO_TRIGGER_FAILING.
+ *	@callback: callback function
+ *	@data: user defined data that is passed in the callbaack
+ *
+ *	This function automatically turns the pin into a input and enables interrupt
+ *	generation on the change. When an interrupt does occur the callback is
+ *	called.
+ *
+ *	If a callback is called, it is done with the GPIO lock held, therefore you
+ *	cannot call any of the omap3_gpio_* functions from the callback.
+ *
+ *	LOCKING:
+ *	Internally locks it's own context.
+ *
+ *	RETURNS:
+ *	0 on success
+ *	-ENOMEM on driver not initialised.
+ *	-EINVAL if pin is outside valid range or not reserved for use.
+ */
+int
+omap3_gpio_pin_intr(unsigned int pin, unsigned int trigger,
+                    void (*callback)(unsigned int pin, unsigned int datain, void *data),
+					void *data)
+{
+	struct omap3_gpio_softc *sc = g_omap3_gpio_sc;
+	int ret = 0;
+	uint32_t bank = OMAP3_GPIO_PIN2BANK(pin);
+	uint32_t mask = OMAP3_GPIO_PIN2MASK(pin);
+	uint32_t reg;
+	
+	if (sc == NULL)
+		return(-ENOMEM);
+	if (pin >= OMAP3_GPIO_MAX_PINS)
+		return(-EINVAL);
+
+	trigger &= 0xf;
+	if (trigger == 0)
+		return(-EINVAL);
+
+	mtx_lock(&sc->sc_mtx);
+
+	if (sc->sc_gpio_setup[bank] & mask) {
+
+		/* set the callback details */
+		sc->sc_callbacks[pin] = callback;
+		sc->sc_callback_data[pin] = data;
+		
+		/* disable interrupts on this particular pin while changing the trig */
+		omap3_gpio_writel(sc, bank, OMAP35XX_GPIO_CLEARIRQENABLE1, mask);
+		
+		/* enable the interrupts */
+		if (trigger & GPIO_TRIGGER_LOWLEVEL) {
+			reg = omap3_gpio_readl(sc, bank, OMAP35XX_GPIO_LEVELDETECT0);
+			reg |= mask;
+			omap3_gpio_writel(sc, bank, OMAP35XX_GPIO_LEVELDETECT0, reg);
+		}
+		if (trigger & GPIO_TRIGGER_HIGHLEVEL) {
+			reg = omap3_gpio_readl(sc, bank, OMAP35XX_GPIO_LEVELDETECT1);
+			reg |= mask;
+			omap3_gpio_writel(sc, bank, OMAP35XX_GPIO_LEVELDETECT1, reg);
+		}
+		if (trigger & GPIO_TRIGGER_RISING) {
+			reg = omap3_gpio_readl(sc, bank, OMAP35XX_GPIO_RISINGDETECT);
+			reg |= mask;
+			omap3_gpio_writel(sc, bank, OMAP35XX_GPIO_RISINGDETECT, reg);
+		}
+		if (trigger & GPIO_TRIGGER_FALLING) {
+			reg = omap3_gpio_readl(sc, bank, OMAP35XX_GPIO_FALLINGDETECT);
+			reg |= mask;
+			omap3_gpio_writel(sc, bank, OMAP35XX_GPIO_FALLINGDETECT, reg);
+		}
+		
+		/* enable the interrupt again */
+		omap3_gpio_writel(sc, bank, OMAP35XX_GPIO_SETIRQENABLE1, mask);
+	}
+	else {
+		ret = -EINVAL;
+	}
+	
+	mtx_unlock(&sc->sc_mtx);
+	
+	return(ret);
+}
+
+
+
+/**
+ *	omap3_gpio_pin_debounce - enables/disables debouncing on a pin
+ *	@pin: the pin number (0-195)
+ *	@enable: non-zero value to enable, 0 to disable
+ *	@interval: the debounce interval in microseconds, used for all pins on the bank
+ *
+ *	
+ *
+ *	LOCKING:
+ *	Internally locks it's own context.
+ *
+ *	RETURNS:
+ *	0 on success
+ *	-ENOMEM on driver not initialised.
+ *	-EINVAL if pin is outside valid range or not reserved for use.
+ */
+int
+omap3_gpio_pin_debounce(unsigned int pin, int enable, unsigned int interval)
+{
+	struct omap3_gpio_softc *sc = g_omap3_gpio_sc;
+	int ret = 0;
+	uint32_t bank = OMAP3_GPIO_PIN2BANK(pin);
+	uint32_t mask = OMAP3_GPIO_PIN2MASK(pin);
+	uint32_t reg;
+	
+	if (sc == NULL)
+		return(-ENOMEM);
+	if (pin >= OMAP3_GPIO_MAX_PINS)
+		return(-EINVAL);
+
+	mtx_lock(&sc->sc_mtx);
+
+	if (sc->sc_gpio_setup[bank] & mask) {
+	
+		if (enable) {
+		
+			/* set the debounce flag */
+			sc->sc_debounce[bank] |= mask;
+			
+			/* if enabling we need to check that the functional clock is enabled */
+			switch (bank) {
+				case 0:
+					omap3_prcm_enable_clk(OMAP3_MODULE_GPIO1_FCLK);
+					break;
+				case 1:
+					omap3_prcm_enable_clk(OMAP3_MODULE_GPIO2_FCLK);
+					break;
+				case 2:
+					omap3_prcm_enable_clk(OMAP3_MODULE_GPIO3_FCLK);
+					break;
+				case 3:
+					omap3_prcm_enable_clk(OMAP3_MODULE_GPIO4_FCLK);
+					break;
+				case 4:
+					omap3_prcm_enable_clk(OMAP3_MODULE_GPIO5_FCLK);
+					break;
+				case 5:
+					omap3_prcm_enable_clk(OMAP3_MODULE_GPIO6_FCLK);
+					break;
+			}
+	
+			/* enable debounce in the register */
+			reg = omap3_gpio_readl(sc, bank, OMAP35XX_GPIO_DEBOUNCENABLE);
+			reg |= mask;
+			omap3_gpio_writel(sc, bank, OMAP35XX_GPIO_DEBOUNCENABLE, reg);
+			
+			/* finally set the debounce time, this affects all pins on the bank,
+			 * but hopefully the caller knows that.
+			 */
+			interval /= 31;
+			if (interval != 0)
+				interval -= 1;
+			if (interval > 0xff)
+				interval = 0xff;
+			omap3_gpio_writel(sc, bank, OMAP35XX_GPIO_DEBOUNCINGTIME, interval);
+			
+		} else {
+		
+			/* clear the debounce flag */
+			sc->sc_debounce[bank] &= ~mask;
+			
+			/* if debouncing is no longer needed on the bank disable the clock */
+			if (sc->sc_debounce[bank] == 0x00000000) {
+				switch (bank) {
+					case 0:
+						omap3_prcm_disable_clk(OMAP3_MODULE_GPIO1_FCLK);
+						break;
+					case 1:
+						omap3_prcm_disable_clk(OMAP3_MODULE_GPIO2_FCLK);
+						break;
+					case 2:
+						omap3_prcm_disable_clk(OMAP3_MODULE_GPIO3_FCLK);
+						break;
+					case 3:
+						omap3_prcm_disable_clk(OMAP3_MODULE_GPIO4_FCLK);
+						break;
+					case 4:
+						omap3_prcm_disable_clk(OMAP3_MODULE_GPIO5_FCLK);
+						break;
+					case 5:
+						omap3_prcm_disable_clk(OMAP3_MODULE_GPIO6_FCLK);
+						break;
+				}
+			}
+			
+			/* disable debounce in the register */
+			reg = omap3_gpio_readl(sc, bank, OMAP35XX_GPIO_DEBOUNCENABLE);
+			reg &= ~mask;
+			omap3_gpio_writel(sc, bank, OMAP35XX_GPIO_DEBOUNCENABLE, reg);
+		}
+		
+	}
+	else {
+		ret = -EINVAL;
+	}
+	
+	mtx_unlock(&sc->sc_mtx);
+	
+	return(ret);
+}
+
+

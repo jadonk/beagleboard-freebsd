@@ -63,6 +63,27 @@ __FBSDID("$FreeBSD$");
  */
 
 
+
+/**
+ *	omap3_mask_all_intr - masks all interrupts
+ *
+ *	Called during initialisation to ensure all interrupts are masked before
+ *	globally enabling interrupts. Should only be used at startup time.
+ *
+ *	RETURNS:
+ *	nothing
+ */
+void
+omap3_mask_all_intr(void)
+{
+	unsigned int i;
+
+	for (i = 0; i < 3; i++) {
+		*((volatile u_int32_t*)OMAP35XX_INTCPS_MIR_SET(i)) = 0xFFFFFFFF;
+	}
+}
+
+
 /**
  *	omap3_post_filter_intr - called after the IRQ has been filtered
  *	@arg: the IRQ number

@@ -18,6 +18,7 @@ arm/cortexa8/omap3/omap3_space_asm.S	standard
 arm/cortexa8/omap3/omap3_timer.c		standard
 arm/cortexa8/omap3/omap3_intr.c			standard
 arm/cortexa8/omap3/omap3_prcm.c			standard
+arm/cortexa8/omap3/omap3_scm.c       	standard
 arm/cortexa8/omap3/omap3_dma.c			standard
 arm/cortexa8/omap3/omap3_gpio.c			standard
 
@@ -25,12 +26,9 @@ arm/cortexa8/omap3/omap3_mmc.c			optional	omap3_mmc
 arm/cortexa8/omap3/omap3_i2c.c			optional	omap3_i2c
 
 
-# arm/cortexa8/omap3/omap3_wdog.c	optional	ixpwdog
-# arm/cortexa8/omap3/omap3_iic.c	optional	ixpiic
 arm/cortexa8/omap3/uart_cpu_omap3.c	optional	uart
 arm/cortexa8/omap3/uart_bus_omap3.c	optional	uart
 
-# dev/cfi/cfi_bus_ixp4xx.c		optional	cfi
 dev/uart/uart_dev_ns8250.c		optional	uart
 
 # USB Host controller

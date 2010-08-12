@@ -158,9 +158,9 @@ struct omap3_dma_channel {
  *
  */
 struct omap3_dma_softc {
+	device_t			sc_dev;
 	bus_space_tag_t		sc_iotag;
 	bus_space_handle_t	sc_ioh;
-	device_t			sc_dev;
 	struct resource*	sc_irq;
 	
 	/* I guess in theory we should have a mutex per DMA channel for register
@@ -516,6 +516,7 @@ static driver_t g_omap3_dma_driver = {
 static devclass_t g_omap3_dma_devclass;
 
 DRIVER_MODULE(omap3_dma, omap3, g_omap3_dma_driver, g_omap3_dma_devclass, 0, 0);
+MODULE_DEPEND(omap3_dma, omap3_prcm, 1, 1, 1);
 
 
 
@@ -609,13 +610,22 @@ omap3_dma_intr(void *arg)
 
 
 /**
- *	omap3_dma_activate_channel - driver attach function
- *	@dev: dma device handle
+ *	omap3_dma_activate_channel - activates a DMA channel
+ *	@ch: upon return contains the channel allocated
+ *	@callback: a callback function to associate with the channel
+ *	@data: optional data supplied when the callback is called
+ *
+ *	Simply activates a channel be enabling and writing default values to the
+ *	channels register set.  It doesn't start a transaction, just populates the
+ *	internal data structures and sets defaults for the register set.
  *
  *	Note this function doesn't enable interrupts, for that you need to call
  *	omap3_dma_enable_channel_irq(). If not using IRQ to detect the end of the
  *	transfer, you can use omap3_dma_status_poll() to detect a change in the
  *	status.
+ *
+ *	A channel must be activated before any of the other DMA functions can be
+ *	called on it.
  *
  *	LOCKING:
  *	DMA registers protected by internal mutex
@@ -698,8 +708,8 @@ omap3_dma_activate_channel(unsigned int *ch,
 
 
 /**
- *	omap3_dma_deactivate_channel - driver attach function
- *	@dev: dma device handle
+ *	omap3_dma_deactivate_channel - deactivates a channel
+ *	@ch: the channel to deactivate
  *
  *	
  *
@@ -760,14 +770,10 @@ omap3_dma_deactivate_channel(unsigned int ch)
 
 
 /**
- *	omap3_dma_disable_channel_irq - driver attach function
- *	@ch: the channel number to set the endianess of
- *	@src_paddr: the source phsyical address
- *	@dst_paddr: the destination phsyical address
- *	@elmcnt: the number of elements in a frame, an element is either an 8, 16
- *           or 32-bit value as defined by omap3_dma_set_xfer_burst()
- *	@frmcnt: the number of frames per block
+ *	omap3_dma_disable_channel_irq - disables IRQ's on the given channel
+ *	@ch: the channel to disable IRQ's on
  *	
+ *	Disable interupt generation for the given channel.
  *
  *	LOCKING:
  *	DMA registers protected by internal mutex
@@ -814,13 +820,18 @@ omap3_dma_disable_channel_irq(unsigned int ch)
 }
 
 /**
- *	omap3_dma_enable_channel_irq - driver attach function
- *	@ch: the channel number to set the endianess of
- *	@src_paddr: the source phsyical address
- *	@dst_paddr: the destination phsyical address
- *	@elmcnt: the number of elements in a frame, an element is either an 8, 16
- *           or 32-bit value as defined by omap3_dma_set_xfer_burst()
- *	@frmcnt: the number of frames per block
+ *	omap3_dma_disable_channel_irq - enables IRQ's on the given channel
+ *	@ch: the channel to enable IRQ's on
+ *	@flags: bitmask of interrupt types to enable
+ *
+ *	Flags can be a bitmask of the following options:
+ *		DMA_IRQ_FLAG_DROP
+ *		DMA_IRQ_FLAG_HALF_FRAME_COMPL
+ *		DMA_IRQ_FLAG_FRAME_COMPL
+ *		DMA_IRQ_FLAG_START_LAST_FRAME
+ *		DMA_IRQ_FLAG_BLOCK_COMPL
+ *		DMA_IRQ_FLAG_ENDOF_PKT
+ *		DMA_IRQ_FLAG_DRAIN
  *	
  *
  *	LOCKING:
@@ -845,7 +856,7 @@ omap3_dma_enable_channel_irq(unsigned int ch, uint32_t flags)
 		mtx_unlock(&sc->sc_mtx);
 		return (EINVAL);
 	}
-	
+
 	/* Always enable the error interrupts if we have interrupts enabled */
 	flags |= DMA4_CICR_TRANS_ERR_IE | DMA4_CICR_SECURE_ERR_IE |
 	         DMA4_CICR_SUPERVISOR_ERR_IE | DMA4_CICR_MISALIGNED_ADRS_ERR_IE;
@@ -873,13 +884,23 @@ omap3_dma_enable_channel_irq(unsigned int ch, uint32_t flags)
 
 
 /**
- *	omap3_dma_get_channel_status - driver attach function
- *	@ch: the channel number to set the endianess of
- *	@src_paddr: the source phsyical address
- *	@dst_paddr: the destination phsyical address
- *	@elmcnt: the number of elements in a frame, an element is either an 8, 16
- *           or 32-bit value as defined by omap3_dma_set_xfer_burst()
- *	@frmcnt: the number of frames per block
+ *	omap3_dma_get_channel_status - returns the status of a given channel
+ *	@ch: the channel number to get the status of
+ *	@status: upon return will contain the status bitmask, see below for possible
+ *	         values.
+ *
+ *	      DMA_STATUS_DROP
+ *	      DMA_STATUS_HALF
+ *	      DMA_STATUS_FRAME
+ *	      DMA_STATUS_LAST
+ *	      DMA_STATUS_BLOCK
+ *	      DMA_STATUS_SYNC
+ *	      DMA_STATUS_PKT
+ *	      DMA_STATUS_TRANS_ERR
+ *	      DMA_STATUS_SECURE_ERR
+ *	      DMA_STATUS_SUPERVISOR_ERR
+ *	      DMA_STATUS_MISALIGNED_ADRS_ERR
+ *	      DMA_STATUS_DRAIN_END
  *	
  *
  *	LOCKING:
@@ -917,7 +938,7 @@ omap3_dma_get_channel_status(unsigned int ch, uint32_t *status)
 
 
 /**
- *	omap3_dma_start_xfer - driver attach function
+ *	omap3_dma_start_xfer - starts a DMA transfer
  *	@ch: the channel number to set the endianess of
  *	@src_paddr: the source phsyical address
  *	@dst_paddr: the destination phsyical address
@@ -1011,7 +1032,7 @@ omap3_dma_start_xfer(unsigned int ch, unsigned int src_paddr,
 
 
 /**
- *	omap3_dma_start_xfer_packet - driver attach function
+ *	omap3_dma_start_xfer_packet - starts a packet DMA transfer
  *	@ch: the channel number to use for the transfer
  *	@src_paddr: the source physical address
  *	@dst_paddr: the destination physical address
@@ -1020,6 +1041,16 @@ omap3_dma_start_xfer(unsigned int ch, unsigned int src_paddr,
  *           or 32-bit value as defined by omap3_dma_set_xfer_burst()
  *	@pktsize: the number of elements in each transfer packet
  *	
+ *	The @frmcnt and @elmcnt define the overall number of bytes to transfer,
+ *	typically @frmcnt is 1 and @elmcnt contains the total number of elements.
+ *	@pktsize is the size of each individual packet, there might be multiple
+ *	packets per transfer.  i.e. for the following with element size of 32-bits
+ *
+ *		frmcnt = 1, elmcnt = 512, pktsize = 128
+ *
+ *	       Total transfer bytes = 1 * 512 = 512 elements or 2048 bytes
+ *	       Packets transfered   = 128 / 512 = 4
+ *
  *
  *	LOCKING:
  *	DMA registers protected by internal mutex
@@ -1157,7 +1188,7 @@ omap3_dma_stop_xfer(unsigned int ch)
 
 
 /**
- *	omap3_dma_set_xfer_endianess - driver attach function
+ *	omap3_dma_set_xfer_endianess - sets the endianess of subsequent transfers
  *	@ch: the channel number to set the endianess of
  *	@src: the source endianess (either DMA_ENDIAN_LITTLE or DMA_ENDIAN_BIG)
  *	@dst: the destination endianess (either DMA_ENDIAN_LITTLE or DMA_ENDIAN_BIG)
@@ -1200,13 +1231,14 @@ omap3_dma_set_xfer_endianess(unsigned int ch, unsigned int src, unsigned int dst
 
 
 /**
- *	omap3_dma_set_xfer_burst - sets the source and destination burst settings
+ *	omap3_dma_set_xfer_burst - sets the source and destination element size
  *	@ch: the channel number to set the burst settings of
  *	@src: the source endianess (either DMA_BURST_NONE, DMA_BURST_16, DMA_BURST_32
  *	      or DMA_BURST_64)
  *	@dst: the destination endianess (either DMA_BURST_NONE, DMA_BURST_16,
  *	      DMA_BURST_32 or DMA_BURST_64)
  *	
+ *	This function sets the size of the elements for all subsequent transfers.
  *
  *	LOCKING:
  *	DMA registers protected by internal mutex

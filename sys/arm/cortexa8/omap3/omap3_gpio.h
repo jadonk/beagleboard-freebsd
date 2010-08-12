@@ -55,27 +55,41 @@
 #ifndef _OMAP3_GPIO_H_
 #define _OMAP3_GPIO_H_
 
+#define GPIO_TRIGGER_LOWLEVEL	0x1
+#define GPIO_TRIGGER_HIGHLEVEL	0x2
+#define GPIO_TRIGGER_RISING		0x4
+#define GPIO_TRIGGER_FALLING	0x8
+
 
 int
-omap3_gpio_request(int pin, const char *name);
+omap3_gpio_request(unsigned int pin, const char *name);
 
 int
-omap3_gpio_free(int pin);
+omap3_gpio_free(unsigned int pin);
 
 int
-omap3_gpio_direction_output(int pin, int val);
+omap3_gpio_direction_output(unsigned int pin, int val);
 
 int
-omap3_gpio_direction_input(int pin);
+omap3_gpio_direction_input(unsigned int pin);
 
 int
-omap3_gpio_pin_get(int pin);
+omap3_gpio_pin_get(unsigned int pin);
 
 int
-omap3_gpio_pin_set(int pin, int val);
+omap3_gpio_pin_set(unsigned int pin, int val);
 
 int
-omap3_gpio_pin_toggle(int pin);
+omap3_gpio_pin_toggle(unsigned int pin);
+
+
+int
+omap3_gpio_pin_intr(unsigned int pin, unsigned int trigger,
+                    void (*callback)(unsigned int pin, unsigned int datain, void *data),
+					void *data);
+
+int
+omap3_gpio_pin_debounce(unsigned int pin, int enable, unsigned int interval);
 
 
 #endif /* _OMAP3_GPIO_H_ */
