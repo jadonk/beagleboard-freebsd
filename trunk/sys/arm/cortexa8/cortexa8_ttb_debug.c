@@ -80,11 +80,16 @@ extern void beagle_putstr(unsigned char *);
 extern void beagle_printf(const char *fmt, ...);
 
 void beagle_dump_ttb(vm_offset_t va);
+void beagle_dump_pmap(pmap_t pm);
+
+void beagle_dump_ttb_at(vm_offset_t l1_va, vm_offset_t va);
+void beagle_dump_pmap_addr(pmap_t pm, vm_offset_t far);
 
 #define PHSY2VIRT(a)	(((a) - PHYSADDR) + KERNBASE)
 
 
 
+#if 0
 
 /**
  *	beagle_dump_l2_entry - dumps a single L2 entry
@@ -164,6 +169,8 @@ beagle_dump_l2_entries(vm_offset_t va, vm_offset_t off)
 	}
 }
 
+#endif
+
 
 /**
  *	beagle_dump_l1_entry - dumps an L1 entry
@@ -192,7 +199,7 @@ beagle_dump_l1_entry(vm_offset_t va, uint32_t pte)
 						  ((pte >> 4) & 0x1),
 						  ((pte >> 3) & 0x1),
 						  ((pte >> 2) & 0x1));
-			beagle_dump_l2_entries(PHSY2VIRT(pte & 0xFFFFFC00), va);
+			//beagle_dump_l2_entries(PHSY2VIRT(pte & 0xFFFFFC00), va);
 			break;
 		case 0x2:
 			if (((pte >> 18) & 0x1) == 0) {
@@ -251,12 +258,12 @@ beagle_dump_l1_entry(vm_offset_t va, uint32_t pte)
  *	nothing
  */
 void
-beagle_dump_ttb(vm_offset_t va)
+beagle_dump_ttb(vm_offset_t l1_va)
 {
 	uint32_t i;
-	volatile uint32_t *p_pte = (volatile uint32_t*) va;
+	volatile uint32_t *p_pte = (volatile uint32_t*) l1_va;
 
-	beagle_printf("Dumping TTB @ 0x%08x\n", va);
+	beagle_printf("Dumping TTB @ 0x%08x\n", l1_va);
 	
 	for (i=0; i<4096; i++) {
 		beagle_dump_l1_entry((i * 1024 * 1024), *p_pte++);
@@ -264,3 +271,42 @@ beagle_dump_ttb(vm_offset_t va)
 }
 
 
+/**
+ *	beagle_dump_ttb - dump the MMU L1/L2 page tables
+ *	@va: the virtual address of top level PTE.
+ *
+ *	Prints the complete MMU page table out the uart. 
+ *
+ *	LOCKING:
+ *	None required
+ *
+ *	RETURNS:
+ *	nothing
+ */
+void
+beagle_dump_pmap(pmap_t pm)
+{
+	beagle_dump_ttb(pmap_get_l1tbl(pm));
+}
+
+
+
+void
+beagle_dump_ttb_at(vm_offset_t l1_va, vm_offset_t va)
+{
+	uint32_t idx = (va >> 20);
+	volatile uint32_t *p_pte = (volatile uint32_t*)l1_va;
+
+	p_pte += idx;
+	
+	beagle_printf("Dumping TTB @ 0x%08x\n", (vm_offset_t)p_pte);
+	
+	beagle_dump_l1_entry((idx * 1024 * 1024), *p_pte);
+}
+
+
+void
+beagle_dump_pmap_addr(pmap_t pm, vm_offset_t far)
+{
+	beagle_dump_ttb_at(pmap_get_l1tbl(pm), far);
+}

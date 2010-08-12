@@ -72,8 +72,16 @@ __FBSDID("$FreeBSD$");
  */
 struct omap3_prcm_softc {
 	device_t			sc_dev;
-	bus_space_tag_t		sc_iot;
-	bus_space_handle_t	sc_ioh;
+	
+	/* the bus handle/tag for the clock management (CM) part of the reg set */
+	bus_space_tag_t		sc_cm_iot;
+	bus_space_handle_t	sc_cm_ioh;
+
+	/* the bus handle/tag for the power & resource management (PRM) part of the
+	 * register set */
+	bus_space_tag_t		sc_prm_iot;
+	bus_space_handle_t	sc_prm_ioh;
+	
 	struct mtx			sc_mtx;
 };
 
@@ -134,15 +142,24 @@ omap3_prcm_attach(device_t dev)
 	g_omap3_prcm_softc = sc;
 	
 	sc->sc_dev = dev;
-	sc->sc_iot = &omap3_bs_tag;
+	sc->sc_cm_iot = sc->sc_prm_iot = &omap3_bs_tag;
 	
 	OMAP3_PRCM_LOCK_INIT(sc);
 	
-	/* Map in the clock control register set */
-	if (bus_space_map(sc->sc_iot, OMAP35XX_CM_HWBASE, OMAP35XX_CM_SIZE,
-					  0, &sc->sc_ioh)) {
+	/* Map in the clock management register set */
+	if (bus_space_map(sc->sc_cm_iot, OMAP35XX_CM_HWBASE, OMAP35XX_CM_SIZE,
+					  0, &sc->sc_cm_ioh)) {
 		panic("%s: Cannot map registers", device_get_name(dev));
 	}
+	
+	/* Map in the power and reset register set */
+	if (bus_space_map(sc->sc_prm_iot, OMAP35XX_PRM_HWBASE, OMAP35XX_PRM_SIZE,
+					  0, &sc->sc_prm_ioh)) {
+		panic("%s: Cannot map registers", device_get_name(dev));
+	}
+
+	printf("[BRG] %s : %d : sc->sc_cm_iot = %p : sc->sc_cm_ioh = 0x%08x\n",
+		__func__, __LINE__, sc->sc_cm_iot, (uint32_t)sc->sc_cm_ioh);
 	
 	return (0);
 }
@@ -198,9 +215,9 @@ omap3_prcm_disable_clk(unsigned int module)
 	
 	OMAP3_PRCM_LOCK(sc);
 	
-	val = bus_space_read_4(sc->sc_iot, sc->sc_ioh, off);
+	val = bus_space_read_4(sc->sc_cm_iot, sc->sc_cm_ioh, off);
 	val &= ~mask;
-	bus_space_write_4(sc->sc_iot, sc->sc_ioh, off, val);
+	bus_space_write_4(sc->sc_cm_iot, sc->sc_cm_ioh, off, val);
 	
 	OMAP3_PRCM_UNLOCK(sc);
 	return (0);
@@ -239,14 +256,55 @@ omap3_prcm_enable_clk(unsigned int module)
 	
 	OMAP3_PRCM_LOCK(sc);
 	
-	val = bus_space_read_4(sc->sc_iot, sc->sc_ioh, off);
+	val = bus_space_read_4(sc->sc_cm_iot, sc->sc_cm_ioh, off);
 	val |= mask;
-	bus_space_write_4(sc->sc_iot, sc->sc_ioh, off, val);
+	bus_space_write_4(sc->sc_cm_iot, sc->sc_cm_ioh, off, val);
 	
 	OMAP3_PRCM_UNLOCK(sc);
+
 	return (0);
 }
 
+
+
+/**
+ *	omap3_prcm_accessible - checks if a module is accessible
+ *	@module: identifier for the module to check, see omap3_prcm.h for a list
+ *	         of possible modules.
+ *	         Example: OMAP3_MODULE_MMC1
+ *	
+ *	
+ *
+ *	LOCKING:
+ *	Internally locks the driver context
+ *
+ *	RETURNS:
+ *	Always returns 0
+ */
+int
+omap3_prcm_accessible(unsigned int module)
+{
+	struct omap3_prcm_softc *sc = g_omap3_prcm_softc;
+	uint32_t val;
+	uint32_t off;
+	uint32_t mask;
+
+	if (sc == NULL) {
+		panic("%s: PRCM module not setup", __func__);
+	}
+
+	off = OMAP3_MODULE_REG_OFFSET(module);
+	mask = 1UL << OMAP3_MODULE_REG_BIT(module);
+
+	val = bus_space_read_4(sc->sc_cm_iot, sc->sc_cm_ioh, off);
+
+	if (val & mask) {
+		return 1;
+	} else {
+		return 0;
+	}
+
+}
 
 
 /**
@@ -291,12 +349,12 @@ omap3_prcm_set_gptimer_clksrc(int timer, int sys_clk)
 	
 	OMAP3_PRCM_LOCK(sc);
 	
-	val = bus_space_read_4(sc->sc_iot, sc->sc_ioh, off);
+	val = bus_space_read_4(sc->sc_cm_iot, sc->sc_cm_ioh, off);
 	if (sys_clk)
 		val |= mask;
 	else
 		val &= ~mask;
-	bus_space_write_4(sc->sc_iot, sc->sc_ioh, off, val);
+	bus_space_write_4(sc->sc_cm_iot, sc->sc_cm_ioh, off, val);
 	
 	OMAP3_PRCM_UNLOCK(sc);
 	return (0);

@@ -43,6 +43,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/interrupt.h>
 #include <sys/module.h>
 #include <sys/rman.h>
+#include <sys/kdb.h>
 
 #include <vm/vm.h>
 #include <vm/vm_extern.h>
@@ -55,6 +56,8 @@ __FBSDID("$FreeBSD$");
 
 #include <arm/cortexa8/omap3/omap3reg.h>
 #include <arm/cortexa8/omap3/omap3var.h>
+
+#include <arm/cortexa8/omap3/omap3_gpio.h>
 
 
 struct omap3_softc {
@@ -96,6 +99,55 @@ cpu_reset()
 
 
 /**
+ * omap3_install_gpio_kdb
+ *
+ * 
+ *
+ */
+static void
+omap3_intr_gpio_kdb(unsigned int pin, unsigned int datain, void *data)
+{
+#if defined(KDB)
+	kdb_enter(KDB_WHY_BREAK, "KDB Button Pressed");
+#endif
+}
+
+
+/**
+ * omap3_install_gpio_kdb
+ *
+ * 
+ *
+ */
+static void
+omap3_install_gpio_kdb(void)
+{
+	int rc;
+	
+	if (omap3_gpio_request(7, "USER") == 0) {
+	
+		/* Set the pin as an input */
+		rc = omap3_gpio_direction_input(7);
+		if (rc != 0)
+			printf("[BRG] failed to set GPIO pin as an input\n");
+		
+		/* Enable the debounce circuit */
+		rc = omap3_gpio_pin_debounce(7, 1, 500);
+		if (rc != 0)
+			printf("[BRG] failed to set GPIO debounce\n");
+		
+		/* Install an intterupt on GPIO for triggering the KDB */
+		rc = omap3_gpio_pin_intr(7, GPIO_TRIGGER_FALLING, omap3_intr_gpio_kdb,
+		                         NULL);
+		if (rc != 0)
+			printf("[BRG] failed to set GPIO interrupt trigger\n");
+			
+		printf("[BRG] installed GPIO trigger for KDB\n");
+	}
+}
+
+
+/**
  * omap3_identify
  *
  * 
@@ -134,15 +186,11 @@ omap3_attach(device_t dev)
 	
 	//device_printf(dev, "%b\n", omap3_read_feature_bits(), EXP_FCTRL_BITS);
 	
-	printf("[BRG] %s : line %d\n", __func__, __LINE__);
 
 	sc = device_get_softc(dev);
-	printf("[BRG] %s : line %d\n", __func__, __LINE__);
 	sc->sc_iot = &omap3_bs_tag;
-	printf("[BRG] %s : line %d\n", __func__, __LINE__);
 
 	KASSERT(g_omap3_softc == NULL, ("%s called twice?", __func__));
-	printf("[BRG] %s : line %d\n", __func__, __LINE__);
 	g_omap3_softc = sc;
 	
 	/* Disable interrupts and config the mask and steering */
@@ -194,14 +242,17 @@ omap3_attach(device_t dev)
 		panic("%s: failed to set up memory rman", __func__);
 
 	
-	/* Add the tick clock to the list of modules initialised */
-	BUS_ADD_CHILD(dev, 0, "omap3_gpio", 0);
+	/* Add the PRCM driver to the list of modules */
+	BUS_ADD_CHILD(dev, 0, "omap3_prcm", 0);
+
+	/* Add the SCM driver to the list of modules */
+	BUS_ADD_CHILD(dev, 0, "omap3_scm", 0);
 
 	/* Add the tick clock to the list of modules initialised */
 	BUS_ADD_CHILD(dev, 0, "omap3_clk", 0);
 	
-	/* Add the PRCM driver to the list of modules */
-	BUS_ADD_CHILD(dev, 0, "omap3_prcm", 0);
+	/* Add the GPIO module */
+	BUS_ADD_CHILD(dev, 0, "omap3_gpio", 0);
 
 	/* Add the DMA driver to the list of modules initialised */
 	BUS_ADD_CHILD(dev, 0, "omap3_dma", 0);
@@ -209,15 +260,25 @@ omap3_attach(device_t dev)
 	/* Add the MMC/SD/SDIO driver to the list of modules */
 	BUS_ADD_CHILD(dev, 0, "omap3_mmc", 0);
 	
+	/* Add the I2C controller driver to the list of modules */
+	BUS_ADD_CHILD(dev, 0, "omap3_i2c", 0);
 	
-	
+	/* Add the USB EHCI driver to the list of modules */
+	BUS_ADD_CHILD(dev, 0, "ehci", 0);
+
+		
 	/* attach wired devices via hints */
 	bus_enumerate_hinted_children(dev);
 	
 	bus_generic_probe(dev);
 	bus_generic_attach(dev);
 	enable_interrupts(I32_bit | F32_bit);
-
+	
+	/* install a GPIO interrupt handler so when the user button
+	 * is pressed the kernel debugger is started - temporary debug
+	 */
+	omap3_install_gpio_kdb();
+	
 	return (0);
 }
 
@@ -451,16 +512,18 @@ omap3_activate_resource(device_t dev, device_t child, int type, int rid,
 {
 	struct omap3_softc *sc = device_get_softc(dev);
 	const struct hwvtrans *vtrans;
+	uint32_t start = rman_get_start(r);
+	uint32_t size = rman_get_size(r);
 	
 	if (type == SYS_RES_MEMORY) {
-		vtrans = omap3_gethwvtrans(rman_get_start(r), rman_get_size(r));
+		vtrans = omap3_gethwvtrans(start, size);
 		if (vtrans == NULL) {		/* NB: should not happen */
 			device_printf(child, "%s: no mapping for 0x%lx:0x%lx\n",
-						  __func__, rman_get_start(r), rman_get_size(r));
+						  __func__, start, size);
 			return (ENOENT);
 		}
 		rman_set_bustag(r, sc->sc_iot);
-		rman_set_bushandle(r, vtrans->vbase);
+		rman_set_bushandle(r, vtrans->vbase + (start - vtrans->hwbase));
 	}
 	return (rman_activate_resource(r));
 }

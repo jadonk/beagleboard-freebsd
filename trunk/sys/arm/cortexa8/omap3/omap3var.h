@@ -64,6 +64,8 @@ extern struct bus_space omap3_bs_tag;
 uint32_t
 omap3_sdram_size(void);
 
+void
+omap3_mask_all_intr(void);
 
 void
 omap3_post_filter_intr(void *arg);
