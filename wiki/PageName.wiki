@@ -1,0 +1,38 @@
+#summary Building and Booting the FreeBSD Kernel
+
+= Introduction =
+
+Very brief instructions on how to build the FreeBSD kernel using the code in the repository and then booting it on the BeagleBoard.
+
+
+= Disclaimer =
+
+These instructions work for me, however it's entirely likely that I may have missed some files that I should have uploaded to the repo, or my build system produces different binaries.
+
+In addition, I build my kernel on OSX using a modified CodeSourcery ARM toolchain, I haven't tried building the kernel on a actual FreeBSD system.
+
+
+= Building the Kernel =
+
+Copy the files from the repo into the FreeBSD tree, I suggest you use some graphical merge program as some of my changes might not be applicable and unnecessary.  To build type the following command.
+
+<pre>   buildkernel KERNCONF=BEAGLEBOARD TARGET=arm MACHINE_ARCH=arm</pre>
+
+If you already have built once and just modified one or two files you can run the following commands which just builds the changed files and re-links.
+
+<pre>   buildkernel KERNFAST=BEAGLEBOARD TARGET=arm MACHINE_ARCH=arm</pre>
+
+The build process should produce a *kernel.bin* binary file.
+
+
+= Running the Kernel =
+
+Copy the *kernel.bin* file onto the root directory of a MMC or SD card and chuck it in the BeagleBoard. At the u-boot prompt, type the following:
+
+<pre>   
+*OMAP3 beagleboard.org #* mmc init
+*OMAP3 beagleboard.org #* fatload mmc 0 0x80200000 kernel.bin
+*OMAP3 beagleboard.org #* go 0x80200000
+</pre>
+
+After that you should see the kernel start-up messages coming out the serial port.
