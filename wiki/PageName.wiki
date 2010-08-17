@@ -9,7 +9,7 @@ Very brief instructions on how to build the FreeBSD kernel using the code in the
 
 These instructions work for me, however it's entirely likely that I may have missed some files that I should have uploaded to the repo, or my build system produces different binaries.
 
-In addition, I build my kernel on OSX using a modified CodeSourcery ARM toolchain, I haven't tried building the kernel on a actual FreeBSD system.
+In addition, I build my kernel on OSX using a modified CodeSourcery ARM toolchain, I haven't tried building the kernel on an actual FreeBSD system.
 
 
 = Building the Kernel =
@@ -22,10 +22,12 @@ If you've already built the kernel once and just modified one or two files you c
 
 <pre>   make buildkernel KERNFAST=BEAGLEBOARD TARGET=arm MACHINE_ARCH=arm</pre>
 
-The build process should produce a *kernel.bin* binary file.
+The build process should produce a *kernel.bin* binary file and a *kernel* ELF file.
 
 
 = Running the Kernel =
+
+== Running the flat binary kernel ==
 
 Copy the *kernel.bin* file onto the root directory of a MMC or SD card and chuck it in the BeagleBoard. At the u-boot prompt, type the following:
 
@@ -35,7 +37,7 @@ Copy the *kernel.bin* file onto the root directory of a MMC or SD card and chuck
 *OMAP3 beagleboard.org #* go 0x80200000
 </pre>
 
-_Note:_ On older version of the Beagleboard and u-boot the _mmc init_ command might be just _mminit_. i.e.
+_Note:_ On older versions of the Beagleboard and u-boot the _mmc init_ command might be just _mmcinit_. i.e.
 
 <pre>   
 *OMAP3 beagleboard.org #* mmcinit
@@ -45,3 +47,37 @@ _Note:_ On older version of the Beagleboard and u-boot the _mmc init_ command mi
 
 
 After that you should see the kernel start-up messages coming out the serial port.
+
+== Running the ELF kernel ==
+
+The process is a bit more complex, because u-boot expects a special
+header in front of ELF files. You will need the mkimage binary that
+can be installed from ports in _devel/u-boot. To get it installed,
+type in the following commands:
+
+<pre>
+*host %* cd /usr/ports/devel/u-boot
+*host %* sudo make install
+</pre>
+
+Once mkimage is installed, you can convert your *kernel* image file
+into an image that u-boot can load and run. Since u-boot doesn't
+support FreeBSD images, the following command instructs it to treat
+the kernel as a NetBSD image. Luckily, the behavior of u-boot in the
+case of a NetBSD image is generic enough so that things work anyway.
+
+<pre>
+*host %* mkimage -A arm -O netbsd -T kernel -C none -a 80200000 -e 802000e0 -n "FreeBSD" -d _path_to_kernel_/kernel ukernel
+</pre>
+
+You should obtain a *ukernel* file, that you can stick into the FAT
+partition of your SD card. Once you get to the u-boot prompt, type in
+the following commands:
+
+<pre>
+*OMAP3 beagleboard.org #* mmcinit
+*OMAP3 beagleboard.org #* fatload mmc 0:1 80200000 ukernel
+*OMAP3 beagleboard.org #* bootm 80200000
+</pre>
+
+You should see the kernel traces as well.
