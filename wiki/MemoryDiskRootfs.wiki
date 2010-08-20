@@ -39,7 +39,7 @@ Your disk image is now mounted into _/mnt/loop_. The system can therefore be cop
 Once the file system has been created, un-mount it:
 
 {{{
-host % unmount /dev/md0a
+host % umount /dev/md0a
 }}}
 
 Then proceed to activate support for it in the kernel. Edit _sys/arm/conf/BEAGLEBOARD_ and uncomment the following lines:
