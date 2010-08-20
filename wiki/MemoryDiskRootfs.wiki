@@ -53,3 +53,6 @@ Then proceed to activate support for it in the kernel. Edit _sys/arm/conf/BEAGLE
 }}}
 
 Of course, _path_to_your_ramdisk_image_ and the size should be updated. Once this is done, the kernel needs to be recompiled.
+
+= References =
+[http://www.freebsd.org/doc/handbook/disks-virtual.html 1] The FreeBSD handbook, 18.13 Network, Memory, and File-Backed File Systems. Check the usage of _mdmfs_ for an easier way to do this.
