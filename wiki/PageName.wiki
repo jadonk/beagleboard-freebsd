@@ -76,8 +76,8 @@ the following commands:
 
 <pre>
 *OMAP3 beagleboard.org #* mmcinit
-*OMAP3 beagleboard.org #* fatload mmc 0:1 80200000 ukernel
-*OMAP3 beagleboard.org #* bootm 80200000
+*OMAP3 beagleboard.org #* fatload mmc 0:1 81000000 ukernel
+*OMAP3 beagleboard.org #* bootm 81000000
 </pre>
 
 You should see the kernel traces as well.
