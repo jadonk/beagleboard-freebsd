@@ -67,6 +67,14 @@ options 	SYSVSEM			#SYSV-style semaphores
 options 	_KPOSIX_PRIORITY_SCHEDULING #Posix P1003_1B real-time extensions
 options 	KBD_INSTALL_CDEV	# install a CDEV entry in /dev
 
+# Memory Disk rootfs
+# Uncomment and edit these lines if you want to use a ramdisk.
+#options		MD_ROOT
+#options		MD_ROOT_SIZE=5120
+#makeoptions     	MFS_IMAGE=_path_to_your_ramdisk_image_
+#options         	ROOTDEVNAME=\"/dev/md0\"
+#env			BEAGLEBOARD.env
+
 # [BRG] You generally want the following, however easier to specifiy it
 #       manually at boot time for now.
 #options 	ROOTDEVNAME=\"msdosfs:/dev/mmcsd0s1\"

@@ -521,7 +521,7 @@ initarm_boilerplate(void *arg1, void *arg2)
 	init_param1();
 	init_param2(physmem);
 	
-	pmap_bootstrap((freemempos&0x007fffff)|0xc0000000, KERNVIRTADDR+0x10000000, &kernel_l1pt);
+	pmap_bootstrap((freemempos&0x00ffffff)|0xc0000000, KERNVIRTADDR+0x10000000, &kernel_l1pt);
 	
 	/* Locking system */
 	mutex_init();
