@@ -81,3 +81,23 @@ the following commands:
 </pre>
 
 You should see the kernel traces as well.
+
+== Reducing the amount of typing ==
+
+Instead of typing this each time, it is of course possible to set the _bootcmd_ environment variable whose content u-boot will execute if the _boot_ command is used.
+
+At the U-boot prompt, just type:
+{{{
+OMAP3 beagleboard.org # setenv bootcmd 'mmcinit ; fatload mmc 0:1 81000000 ukernel ; bootm 81000000'
+}}}
+Beware, on some versions of U-boot, spaces are important. Then, save this environment variable to persistent storage so that it's available across reboots by typing:
+{{{
+OMAP3 beagleboard.org # saveenv
+Saving Environment to NAND...
+Erasing Nand...Writing to Nand... done
+}}}
+Now, and each time you start the board, you only have to type:
+{{{
+OMAP3 beagleboard.org # boot
+}}}
+U-boot also supports automatically executing the content of _bootcmd_ when starting up, but it is really not recommended at this stage of the development process.
