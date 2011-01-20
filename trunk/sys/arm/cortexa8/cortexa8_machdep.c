@@ -107,14 +107,16 @@ static struct pv_addr	kernel_l1pt;				/* Level-1 page table entry */
 
 
 
-#define KERNEL_PT_SYS			0	/* Page table for mapping proc0 zero page */
-#define	KERNEL_PT_IO			1
-#define KERNEL_PT_IO_NUM		3
-#define KERNEL_PT_BEFOREKERN	KERNEL_PT_IO + KERNEL_PT_IO_NUM
-#define KERNEL_PT_AFKERNEL		KERNEL_PT_BEFOREKERN + 1	/* L2 table for mapping after kernel */
-#define	KERNEL_PT_AFKERNEL_NUM	9
+#define KERNEL_PT_SYS		0	/* Page table for mapping proc0 zero page */
+#define KERNEL_PT_KERN		1
+#define KERNEL_PT_KERN_NUM	22
+#define KERNEL_PT_AFKERNEL	KERNEL_PT_KERN + KERNEL_PT_KERN_NUM	/* L2 table for mapping after kernel */
+#define	KERNEL_PT_AFKERNEL_NUM	5
 
-#define NUM_KERNEL_PTS	12
+/* this should be evenly divisable by PAGE_SIZE / L2_TABLE_SIZE_REAL (or 4) */
+#define NUM_KERNEL_PTS		(KERNEL_PT_AFKERNEL + KERNEL_PT_AFKERNEL_NUM)
+
+
 
 static struct pv_addr	kernel_page_tables[NUM_KERNEL_PTS];	/* Level-2 page table entries for the kernel */
 
@@ -332,7 +334,7 @@ initarm_boilerplate(void *arg1, void *arg2)
 	totalsize = round_L_page((unsigned long)_end - KERNVIRTADDR);
 	
 #ifdef VERBOSE_INIT_ARM
-	beagle_printf(".text=0x%08x total=0x%08x _end=0x%08x 0x%08x 0x%08x\n",
+	beagle_printf(".text=0x%08x total=0x%08x _end=0x%08x etext=0x%08x KERNVIRTADDR=0x%08x\n",
 	              textsize, totalsize, (unsigned int)_end,
 				  (unsigned int) etext, KERNVIRTADDR);
 #endif
@@ -447,10 +449,11 @@ initarm_boilerplate(void *arg1, void *arg2)
 	set_stackptr(PSR_UND32_MODE, undstack.pv_va + UND_STACK_SIZE * PAGE_SIZE);
 	
 #ifdef VERBOSE_INIT_ARM
-	beagle_printf("STACK: 0x%08x\n", (void *)(fiqstack.pv_va + FIQ_STACK_SIZE * PAGE_SIZE));
-	beagle_printf("STACK: 0x%08x\n", (void*)(irqstack.pv_va + IRQ_STACK_SIZE * PAGE_SIZE));
-	beagle_printf("STACK: 0x%08x\n", (void *)(abtstack.pv_va + ABT_STACK_SIZE * PAGE_SIZE));
-	beagle_printf("STACK: 0x%08x\n", (void *)(undstack.pv_va + UND_STACK_SIZE * PAGE_SIZE));
+	beagle_printf("fiqstack: 0x%08x\n", (void *)(fiqstack.pv_va + FIQ_STACK_SIZE * PAGE_SIZE));
+	beagle_printf("irqstack: 0x%08x\n", (void *)(irqstack.pv_va + IRQ_STACK_SIZE * PAGE_SIZE));
+	beagle_printf("abtstack: 0x%08x\n", (void *)(abtstack.pv_va + ABT_STACK_SIZE * PAGE_SIZE));
+	beagle_printf("undstack: 0x%08x\n", (void *)(undstack.pv_va + UND_STACK_SIZE * PAGE_SIZE));
+	beagle_printf("kernelstack: 0x%08x\n", (void *)(kernelstack.pv_va + (KSTACK_PAGES+1) * PAGE_SIZE));
 #endif
 	
 	/*
@@ -485,7 +488,7 @@ initarm_boilerplate(void *arg1, void *arg2)
 	proc_linkup(&proc0, &thread0);
 	thread0.td_kstack		= kernelstack.pv_va;
 	//thread0.td_pcb			= (struct pcb *) (thread0.td_kstack + (KSTACK_PAGES + 1) * PAGE_SIZE) - 1;
-	thread0.td_pcb			= (struct pcb *) (thread0.td_kstack + KSTACK_PAGES * PAGE_SIZE) - 1;
+	thread0.td_pcb			= (struct pcb *) (thread0.td_kstack + (KSTACK_PAGES * PAGE_SIZE)) - 1;
 	thread0.td_pcb->pcb_flags	= 0;
 	thread0.td_frame		= &proc0_tf;
 	pcpup->pc_curpcb		= thread0.td_pcb;
@@ -517,12 +520,15 @@ initarm_boilerplate(void *arg1, void *arg2)
 	dump_avail[3]	= 0;
 	
 	physmem		= sdram_size / PAGE_SIZE;
+
+	
+	pmap_bootstrap((freemempos&0x00ffffff)|0xc0000000,   /* start address */
+				   KERNVIRTADDR+0x10000000,              /* end address */
+				   &kernel_l1pt);
 	
 	init_param1();
 	init_param2(physmem);
-	
-	pmap_bootstrap((freemempos&0x00ffffff)|0xc0000000, KERNVIRTADDR+0x10000000, &kernel_l1pt);
-	
+
 	/* Locking system */
 	mutex_init();
 	
@@ -530,7 +536,8 @@ initarm_boilerplate(void *arg1, void *arg2)
 	kdb_init();
 	
 	/* initarm returns the address of the kernel stack */
-	return (void *)(kernelstack.pv_va + (KSTACK_PAGES + 1) * PAGE_SIZE);
+	return ((void *)(kernelstack.pv_va + USPACE_SVC_STACK_TOP -
+	    sizeof(struct pcb)));
 }
 
 

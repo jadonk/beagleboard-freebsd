@@ -81,10 +81,10 @@ __FBSDID("$FreeBSD$");
 
 
 /**
- * The TI OMAP3530 has a maximum of 196 IO pins, seperated accross 6 register
+ * The TI OMAP3530 has a maximum of 192 IO pins, seperated accross 6 register
  * sets.
  */
-#define OMAP3_GPIO_MAX_PINS		196
+#define OMAP3_GPIO_MAX_PINS		192
 
 
 /**
@@ -111,12 +111,12 @@ struct omap3_gpio_softc {
 
 	struct resource*	sc_irq;
 	
-	uint32_t			sc_gpio_setup[OMAP3_GPIO_MAX_PINS / 32];
+	uint32_t			sc_gpio_setup[(OMAP3_GPIO_MAX_PINS / 32)];
 	
 	void (*sc_callbacks[OMAP3_GPIO_MAX_PINS])(unsigned int, unsigned int, void*);
 	void*               sc_callback_data[OMAP3_GPIO_MAX_PINS];
 	
-	uint32_t			sc_debounce[OMAP3_GPIO_MAX_PINS / 32];
+	uint32_t			sc_debounce[(OMAP3_GPIO_MAX_PINS / 32)];
 
 	struct mtx			sc_mtx;
 
@@ -362,8 +362,10 @@ omap3_gpio_request(unsigned int pin, const char *name)
 	
 	if (sc == NULL)
 		return(-ENOMEM);
-	if (pin >= OMAP3_GPIO_MAX_PINS)
+	if (pin >= OMAP3_GPIO_MAX_PINS) {
+		device_printf(sc->sc_dev, "Error - pin number is too large (%u)\n", pin);
 		return(-EINVAL);
+	}
 	
 	mtx_lock(&sc->sc_mtx);
 	
@@ -426,8 +428,10 @@ omap3_gpio_free(unsigned int pin)
 	
 	if (sc == NULL)
 		return(-ENOMEM);
-	if (pin >= OMAP3_GPIO_MAX_PINS)
+	if (pin >= OMAP3_GPIO_MAX_PINS) {
+		device_printf(sc->sc_dev, "Error - pin number is too large (%u)\n", pin);
 		return(-EINVAL);
+	}
 	
 	mtx_lock(&sc->sc_mtx);
 	
@@ -495,8 +499,10 @@ omap3_gpio_direction_output(unsigned int pin, int val)
 	
 	if (sc == NULL)
 		return(-ENOMEM);
-	if (pin >= OMAP3_GPIO_MAX_PINS)
+	if (pin >= OMAP3_GPIO_MAX_PINS) {
+		device_printf(sc->sc_dev, "Error - pin number is too large (%u)\n", pin);
 		return(-EINVAL);
+	}
 	
 	mtx_lock(&sc->sc_mtx);
 	

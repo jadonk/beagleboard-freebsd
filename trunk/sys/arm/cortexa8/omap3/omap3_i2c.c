@@ -46,6 +46,10 @@
  * larger than a certain size the DMA engine is used, for anything less the
  * normal interrupt/fifo driven option is used.
  *
+ *
+ * WARNING: This driver uses mtx_sleep and interrupts to perform transactions,
+ * which means you can't do a transaction during startup before the interrupts
+ * have been enabled.  Hint - the freebsd function config_intrhook_establish().
  */
 
 
@@ -547,7 +551,7 @@ omap3_i2c_deactivate(device_t dev)
 	
 	bus_generic_detach(sc->sc_dev);
 	
-	/* Unmap the MMC controller registers */
+	/* Unmap the I2C controller registers */
 	if (sc->sc_ioh != 0) {
 		bus_space_unmap(sc->sc_iotag, sc->sc_ioh, memsize);
 		sc->sc_ioh = 0;
