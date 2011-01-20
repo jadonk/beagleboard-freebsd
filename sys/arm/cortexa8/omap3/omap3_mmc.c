@@ -641,7 +641,7 @@ omap3_mmc_getaddr(void *arg, bus_dma_segment_t *segs, int nsegs, int error)
 
 
 /**
- *	omap3_mmc_intr - interrupt handler for DMA events triggered by the controller
+ *	omap3_mmc_dma_intr - interrupt handler for DMA events triggered by the controller
  *	@ch: the dma channel number
  *	@status: bit field of the status bytes
  *	@data: callback data, in this case a pointer to the controller struct
@@ -715,7 +715,7 @@ omap3_mmc_intr_xfer_compl(struct omap3_mmc_softc *sc, struct mmc_command *cmd)
 
 
 /**
- *	omap3_mmc_intr_xfer_compl - called if a 'command complete' IRQ was received
+ *	omap3_mmc_intr_cmd_compl - called if a 'command complete' IRQ was received
  *	@sc: pointer to the driver context
  *	@cmd: the command that was sent previously
  *	

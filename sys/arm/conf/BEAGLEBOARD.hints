@@ -3,6 +3,17 @@
 # USB ECHI 
 
 #
+# TI OMAP Power Management and System Companion Device sitting on the I2C bus
+hint.tps65950.0.at="iicbus0"
+hint.tps65950.0.addr=0xd0
+
+
+#
+# Defines the GPIO pin used to detect the Write Protect stat of the MMC/SD card.
+hint.omap3_mmc.0.wp_gpio="23"
+
+
+#
 # If 'phy_reset" is set, then the accompaning PHY is reset using one of the
 # GPIO pins. If the reset GPIO pin is not -1 then the pin will be toggled when
 # the USB driver is loaded.

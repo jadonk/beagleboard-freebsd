@@ -101,6 +101,60 @@ static struct omap3_prcm_softc *g_omap3_prcm_softc = NULL;
 
 
 
+/**
+ *	omap3_prcm_setup_dpll5 - probe function for the driver
+ *	@dev: prcm device handle
+ *
+ *	Simply sets the name of the driver module.
+ *
+ *	LOCKING:
+ *	None
+ *
+ *	RETURNS:
+ *	Always returns 0
+ */
+static int
+omap3_prcm_setup_dpll5(struct omap3_prcm_softc *sc, uint32_t mul, uint32_t div)
+{
+	uint32_t val;
+	
+	/* DPPL5 uses DPLL5_ALWON_FCLK as it's reference clock, this is just SYS_CLK
+	 * which on the beagleboard is 13MHz.
+	 */
+	
+	/* Set the multipler and divider values for the PLL.  We want 120Mhz so take
+	 * the system clock (13Mhz) divide by that then multiple by 120.
+	 */
+	val = ((120 & 0x7ff) << 8) | ((13 - 1) & 0x7f);
+	bus_space_write_4(sc->sc_cm_iot, sc->sc_cm_ioh, OMAP35XX_CM_CLKSEL4_PLL, val);
+	
+	/* This is the clock divider from the PLL into the 120Mhz clock supplied to
+	 * the USB module. */
+	val = 0x01;
+	bus_space_write_4(sc->sc_cm_iot, sc->sc_cm_ioh, OMAP35XX_CM_CLKSEL5_PLL, val);
+
+	/* PERIPH2_DPLL_FREQSEL = 0x7   (1.75 MHz—2.1 MHz)
+	 * EN_PERIPH2_DPLL = 0x7        (Enables the DPLL5 in lock mode)
+	 */
+	val = (7 << 4) | (7 << 0);
+	bus_space_write_4(sc->sc_cm_iot, sc->sc_cm_ioh, OMAP35XX_CM_CLKEN2_PLL, val);
+
+
+	/* Disable auto-idle */
+	val = 0x0;
+	bus_space_write_4(sc->sc_cm_iot, sc->sc_cm_ioh, OMAP35XX_CM_AUTOIDLE2_PLL, val);
+
+
+
+	/* Wait until the DPLL5 is locked and there is clock activity */
+	while (((val = bus_space_read_4(sc->sc_cm_iot, sc->sc_cm_ioh,
+	       OMAP35XX_CM_IDLEST2_CKGEN)) & 0x01) == 0x00) {
+		printf("OMAP35XX_CM_IDLEST2_PLL = 0x%08x\n", val);
+	}
+
+	return 0;
+}
+
 
 /**
  *	omap3_prcm_probe - probe function for the driver
@@ -160,6 +214,10 @@ omap3_prcm_attach(device_t dev)
 
 	printf("[BRG] %s : %d : sc->sc_cm_iot = %p : sc->sc_cm_ioh = 0x%08x\n",
 		__func__, __LINE__, sc->sc_cm_iot, (uint32_t)sc->sc_cm_ioh);
+
+
+	/* Setup DPLL5, this is the 120MHz clock used by the USB module */
+	omap3_prcm_setup_dpll5(sc, 120, 12);
 	
 	return (0);
 }
