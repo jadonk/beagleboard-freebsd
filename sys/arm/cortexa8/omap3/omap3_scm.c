@@ -366,7 +366,7 @@ omap3_scm_probe(device_t dev)
 
 /**
  *	omap3_scm_attach - driver attach function
- *	@dev: pinumx device handle
+ *	@dev: scm device handle
  *
  *	Sets up the driver data structure and initialises all the fields.
  *
@@ -402,15 +402,15 @@ static device_method_t g_omap3_scm_methods[] = {
 	{ 0, 0 }
 };
 
-static driver_t g_omap3_pinumx_driver = {
+static driver_t g_omap3_scm_driver = {
 	"omap3_scm",
 	g_omap3_scm_methods,
-	sizeof(g_omap3_scm_methods),
+	sizeof(struct omap3_scm_softc),
 };
 
 static devclass_t g_omap3_scm_devclass;
 
-DRIVER_MODULE(omap3_scm, omap3, g_omap3_pinumx_driver, g_omap3_scm_devclass, 0, 0);
+DRIVER_MODULE(omap3_scm, omap3, g_omap3_scm_driver, g_omap3_scm_devclass, 0, 0);
 
 
 
@@ -455,11 +455,14 @@ omap3_scm_padconf_set(uint32_t padconf, unsigned int mode, unsigned int state)
 }
 
 /**
- *	omap3_scm_padconf_set_gpiomode - requests 'exclusive' access to the GPIO pin.
- *	@pin: the pin number (0-195)
- *	@name: the name to give the pin (currently not used).
- *
- *	
+ *	omap3_scm_padconf_set_gpiomode - converts a pad to GPIO mode.
+ *	@pin: the pin number (0-191)
+ *	@state: the input/output, pull-up/pull-down state, can be one
+ *	        of the following values:
+ *	          - PADCONF_PIN_OUTPUT
+ *	          - PADCONF_PIN_INPUT
+ *	          - PADCONF_PIN_INPUT_PULLUP
+ *	          - PADCONF_PIN_INPUT_PULLDOWN
  *
  *	LOCKING:
  *	Internally locks it's own context.
@@ -470,7 +473,7 @@ omap3_scm_padconf_set(uint32_t padconf, unsigned int mode, unsigned int state)
  *	-EINVAL if pin requested is outside valid range or already in use.
  */
 int
-omap3_scm_padconf_set_gpiomode(uint32_t gpio, unsigned int state)
+omap3_scm_padconf_set_gpiomode(uint32_t pin, unsigned int state)
 {
 	struct omap3_scm_softc *sc = g_omap3_scm_sc;
 	uint16_t val;
@@ -481,11 +484,11 @@ omap3_scm_padconf_set_gpiomode(uint32_t gpio, unsigned int state)
 	/* sanity checking */
 	if (sc == NULL)
 		return(-ENOMEM);
-	if (gpio >= max_gpio)
+	if (pin >= max_gpio)
 		return(-EINVAL);
 	
 	/* get the corresponding PADCONF register for the GPIO */
-	padconf = omap3_scm_gpio_map[gpio];
+	padconf = omap3_scm_gpio_map[pin];
 	if (padconf != 0) {
 	
 		/* mode is always 4 for GPIO pins */

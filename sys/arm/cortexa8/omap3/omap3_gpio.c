@@ -327,7 +327,7 @@ static device_method_t g_omap3_gpio_methods[] = {
 static driver_t g_omap3_gpio_driver = {
 	"omap3_gpio",
 	g_omap3_gpio_methods,
-	sizeof(g_omap3_gpio_methods),
+	sizeof(struct omap3_gpio_softc),
 };
 
 static devclass_t g_omap3_gpio_devclass;
