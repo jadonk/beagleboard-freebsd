@@ -186,6 +186,31 @@
 
 
 
+typedef enum {
+	MMC1_ICLK = 0,
+	MMC1_FCLK = 1,
+	MMC2_ICLK = 2,
+	MMC2_FCLK = 3,
+	MMC3_ICLK = 4,
+	MMC3_FCLK = 5,
+
+	I2C1_ICLK = 6,
+	I2C1_FCLK = 7,
+	I2C2_ICLK = 8,
+	I2C2_FCLK = 9,
+	
+	USBTTL_ICLK = 10,
+	USBTTL_FCLK = 11,
+	
+	USBHOST_120M_FCLK = 12,
+	USBHOST_48M_FCLK  = 13,
+	USBHOST_ICLK      = 14,
+	
+	
+	LAST_CLK_IDENT
+	
+} clk_ident_t;
+
 
 
 int
@@ -196,6 +221,22 @@ omap3_prcm_disable_clk(unsigned int module);
 
 int
 omap3_prcm_accessible(unsigned int module);
+
+
+
+int
+omap3_prcm_enable_clk_ex(clk_ident_t clk);
+
+int
+omap3_prcm_disable_clk_ex(clk_ident_t clk);
+
+int
+omap3_prcm_disable_autoidle(clk_ident_t clk);
+
+
+int
+omap3_prcm_setup_pll(unsigned int n, unsigned int mul, unsigned int div);
+
 
 
 
