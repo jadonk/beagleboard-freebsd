@@ -64,6 +64,24 @@ __FBSDID("$FreeBSD$");
 #include <arm/cortexa8/omap3/omap3_prcm.h>
 
 
+
+struct omap3_clk {
+	const char*        name;
+	
+	uint32_t           enable_reg;
+	uint32_t           enable_bit;
+	
+	uint32_t           idlest_reg;
+	uint32_t           idlest_bit;
+	
+	uint32_t           companion_clk_reg;
+	uint32_t           companion_clk_bit;
+};
+
+#define MAX_MODULE_ENABLE_WAIT    1000000
+
+
+
 /**
  *	Structure that stores the driver context.
  *
@@ -416,6 +434,193 @@ omap3_prcm_set_gptimer_clksrc(int timer, int sys_clk)
 	
 	OMAP3_PRCM_UNLOCK(sc);
 	return (0);
+}
+
+
+
+static const struct omap3_clk g_omap3_clks[LAST_CLK_IDENT] =
+{
+	[USBTTL_ICLK] =      {  .name = "usbttl_iclk",
+	                         .enable_reg = OMAP35XX_CM_ICLKEN3_CORE,
+	                         .enable_bit = 2,
+	                         .idlest_reg = OMAP35XX_CM_IDLEST3_CORE,
+	                         .idlest_bit = 2,
+	                         .companion_clk_reg = OMAP35XX_CM_FCLKEN3_CORE,
+	                         .companion_clk_bit = 2,
+	                      },
+	[USBTTL_FCLK] =       {  .name = "usbttl_fclk",
+	                         .enable_reg = OMAP35XX_CM_FCLKEN3_CORE,
+	                         .enable_bit = 2,
+	                         .idlest_reg = OMAP35XX_CM_IDLEST3_CORE,
+	                         .idlest_bit = 2,
+	                         .companion_clk_reg = OMAP35XX_CM_ICLKEN3_CORE,
+	                         .companion_clk_bit = 2,
+	                      },
+	
+	[USBHOST_120M_FCLK] = {  .name = "usbhost_120m_fclk",
+	                         .enable_reg = OMAP35XX_CM_FCLKEN_USBHOST,
+					         .enable_bit = 1,
+					         .idlest_reg = OMAP35XX_CM_IDLEST_USBHOST,
+					         .idlest_bit = 0,
+					         .companion_clk_reg = OMAP35XX_CM_ICLKEN_USBHOST,
+					         .companion_clk_bit = 0,
+	                      },
+	[USBHOST_48M_FCLK]  = {  .name = "usbhost_48m_fclk",
+	                         .enable_reg = OMAP35XX_CM_FCLKEN_USBHOST,
+					         .enable_bit = 0,
+					         .idlest_reg = OMAP35XX_CM_IDLEST_USBHOST,
+					         .idlest_bit = 0,
+					         .companion_clk_reg = OMAP35XX_CM_ICLKEN_USBHOST,
+					         .companion_clk_bit = 0,
+	                      },
+	[USBHOST_ICLK]      = {  .name = "usbhost_iclk",
+	                         .enable_reg = OMAP35XX_CM_ICLKEN_USBHOST,
+					         .enable_bit = 0,
+					         .idlest_reg = OMAP35XX_CM_IDLEST_USBHOST,
+					         .idlest_bit = 0,
+					         .companion_clk_reg = OMAP35XX_CM_FCLKEN_USBHOST,
+					         .companion_clk_bit = 0,
+	                      },
+	
+};
+
+
+int
+omap3_prcm_enable_clk_ex(clk_ident_t clk)
+{
+	struct omap3_prcm_softc *sc = g_omap3_prcm_softc;
+	const struct omap3_clk *clk_ops;
+	uint32_t val;
+	uint32_t off;
+	uint32_t mask;
+	uint32_t i;
+	int ret = 0;
+
+	if (sc == NULL) {
+		panic("%s: PRCM module not setup", __func__);
+	}
+
+	if (clk >= LAST_CLK_IDENT)
+		return (-EINVAL);
+
+
+	clk_ops = &g_omap3_clks[clk];
+	
+	off = clk_ops->enable_reg;
+	mask = (1UL << clk_ops->enable_bit);
+	
+	OMAP3_PRCM_LOCK(sc);
+	
+	/* Enable the bit in the register */
+	val = bus_space_read_4(sc->sc_cm_iot, sc->sc_cm_ioh, off);
+	val |= mask;
+	bus_space_write_4(sc->sc_cm_iot, sc->sc_cm_ioh, off, val);
+	
+	/* OCP barrier ? needed ? */
+	val = bus_space_read_4(sc->sc_cm_iot, sc->sc_cm_ioh, off);
+
+	OMAP3_PRCM_UNLOCK(sc);
+
+
+	
+	/* If the idlest register is set, use it to determine if the clock has been
+	 * actually enabled.
+	 */
+	if (clk_ops->idlest_reg != 0x00000000) {
+	
+		/* The module enable is usually set based on a combination of the
+		 * interface and functional clock, so here we check the 'companion'
+		 * clock (if there is one) and if it's disabled we abort this check.
+		 */
+		if (clk_ops->companion_clk_reg != 0x00000000) {
+			off = clk_ops->companion_clk_reg;
+			mask = (1UL << clk_ops->companion_clk_bit);
+		
+			val = bus_space_read_4(sc->sc_cm_iot, sc->sc_cm_ioh, off);
+			if ((val & mask) == 0) {
+				/* Companion clock not enabled, so we are done */
+				return (0);
+			}
+		}
+			
+		/* Read the IDLEST register and determine if the module is enabled */
+		off = clk_ops->idlest_reg;
+		mask = (1UL << clk_ops->idlest_bit);
+		
+		/* Try MAX_MODULE_ENABLE_WAIT number of times to check if enabled */
+		for (i = 0; i < MAX_MODULE_ENABLE_WAIT; i++) {
+			val = bus_space_read_4(sc->sc_cm_iot, sc->sc_cm_ioh, off);
+			if ((val & mask) == 0)
+				break;
+		}
+		
+		/* check if we timed out */
+		if (i == MAX_MODULE_ENABLE_WAIT) {
+			device_printf(sc->sc_dev, "Error: failed to enable module with "
+			              "clock \"%s\"\n", clk_ops->name);
+			printf("Error: 0x%08x => 0x%08x\n", clk_ops->idlest_reg, val);
+			ret = -ETIMEDOUT;
+		}
+	}
+	
+	
+	
+	return (ret);
+}
+
+
+int
+omap3_prcm_disable_clk_ex(clk_ident_t clk)
+{
+	struct omap3_prcm_softc *sc = g_omap3_prcm_softc;
+	const struct omap3_clk *clk_ops;
+	uint32_t val;
+
+	if (sc == NULL) {
+		panic("%s: PRCM module not setup", __func__);
+	}
+
+	if (clk >= LAST_CLK_IDENT)
+		return (-EINVAL);
+
+	clk_ops = &g_omap3_clks[clk];
+	
+	OMAP3_PRCM_LOCK(sc);
+	
+	val = bus_space_read_4(sc->sc_cm_iot, sc->sc_cm_ioh, clk_ops->enable_reg);
+	val &= ~(1UL << clk_ops->enable_bit);
+	bus_space_write_4(sc->sc_cm_iot, sc->sc_cm_ioh, clk_ops->enable_reg, val);
+	
+	OMAP3_PRCM_UNLOCK(sc);
+	
+	
+	return (0);
+}
+
+
+int
+omap3_prcm_disable_autoidle(clk_ident_t clk)
+{
+	struct omap3_prcm_softc *sc = g_omap3_prcm_softc;
+	uint32_t val;
+
+	if (sc == NULL) {
+		panic("%s: PRCM module not setup", __func__);
+	}
+
+	if (clk >= LAST_CLK_IDENT)
+		return (-EINVAL);
+
+
+	val = bus_space_read_4(sc->sc_cm_iot, sc->sc_cm_ioh, OMAP35XX_CM_AUTOIDLE3_CORE);
+	val &= ~(1UL << 2);
+	bus_space_write_4(sc->sc_cm_iot, sc->sc_cm_ioh, OMAP35XX_CM_AUTOIDLE3_CORE, val);
+
+val = bus_space_read_4(sc->sc_cm_iot, sc->sc_cm_ioh, OMAP35XX_CM_AUTOIDLE3_CORE);
+printf("[BRG] PRCM : CM_AUTOIDLE3_CORE : 0x%08x => 0x%08x\n", ((uint32_t)sc->sc_cm_ioh + OMAP35XX_CM_AUTOIDLE3_CORE), val);
+
+
+	return 0;
 }
 
 
